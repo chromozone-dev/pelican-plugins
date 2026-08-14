@@ -1,8 +1,8 @@
 {
     "reverse-proxy": {
         "*": {
-            "version": "1.1.1",
-            "download_url": "https://github.com/chromozone-dev/pelican-plugins/releases/download/reverse-proxy-v1.1.1/reverse-proxy-1.1.1.zip"
+            "version": "1.2.0",
+            "download_url": "https://github.com/chromozone-dev/pelican-plugins/releases/download/reverse-proxy-v1.2.0/reverse-proxy-1.2.0.zip"
         }
     }
 }
