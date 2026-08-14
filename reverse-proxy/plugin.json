@@ -2,7 +2,7 @@
     "id": "reverse-proxy",
     "name": "Reverse Proxy",
     "author": "dkatz",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "description": "Creates reverse proxy hosts for ports exposed by servers, using Nginx Proxy Manager or NPMplus",
     "category": "plugin",
     "namespace": "Chromozone\\ReverseProxy",

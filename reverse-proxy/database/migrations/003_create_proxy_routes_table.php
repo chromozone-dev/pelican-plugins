@@ -3,6 +3,7 @@
 use Chromozone\ReverseProxy\Models\ProxyRoute;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -38,13 +39,23 @@ return new class extends Migration
 
     public function down(): void
     {
-        // Delete through the model so each route is removed from the proxy manager too.
-        ProxyRoute::all()->each(function (ProxyRoute $route) {
-            try {
-                $route->delete();
-            } catch (Exception) {
-            }
-        });
+        // Deleting through the model also removes each entry from the proxy
+        // manager, so it is preferred - but it must never be required.
+        //
+        // Plugin namespaces are registered at boot from the list of installed
+        // plugins, and uninstalling runs in a queued job. A worker that started
+        // before this plugin was installed cannot resolve the class, and letting
+        // that abort the rollback leaves the plugin impossible to uninstall.
+        if (class_exists(ProxyRoute::class)) {
+            ProxyRoute::all()->each(function (ProxyRoute $route) {
+                try {
+                    $route->delete();
+                } catch (Exception) {
+                }
+            });
+        } else {
+            Log::warning('reverse-proxy: ProxyRoute could not be loaded while rolling back, so proxy entries were left in the proxy manager. Remove them by hand, or restart the queue worker and reinstall before uninstalling again.');
+        }
 
         Schema::dropIfExists('proxy_routes');
     }
