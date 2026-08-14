@@ -4,9 +4,11 @@ namespace Chromozone\ReverseProxy\Filament\Admin\Resources\Servers\RelationManag
 
 use App\Models\Allocation;
 use App\Models\Server;
+use Chromozone\ReverseProxy\Enums\RouteType;
 use Chromozone\ReverseProxy\Filament\Server\Resources\ProxyRoutes\ProxyRouteResource;
 use Chromozone\ReverseProxy\Models\ProxyDomain;
 use Chromozone\ReverseProxy\Models\ProxyRoute;
+use Chromozone\ReverseProxy\Models\ProxyStreamPort;
 use Chromozone\ReverseProxy\Rules\DnsLabel;
 use Chromozone\ReverseProxy\Services\ProxyRouteService;
 use Exception;
@@ -65,7 +67,10 @@ class ProxyRouteRelationManager extends RelationManager
             ->columns([
                 TextColumn::make('hostname')
                     ->label(trans('reverse-proxy::strings.hostname'))
-                    ->state(fn (ProxyRoute $route) => $route->hostname),
+                    // For a stream this includes the proxy's incoming port, which
+                    // is what a player actually types.
+                    ->state(fn (ProxyRoute $route) => $route->publicAddress())
+                    ->description(fn (ProxyRoute $route) => $route->type->getLabel()),
                 TextColumn::make('destination')
                     ->label(trans('reverse-proxy::strings.destination'))
                     ->state(fn (ProxyRoute $route) => ProxyRouteResource::describeTarget($route))
@@ -165,6 +170,18 @@ class ProxyRouteRelationManager extends RelationManager
                         ])
                         ->all())
                     ->default(fn () => $this->getOwnerRecord()->allocation_id),
+                Select::make('type')
+                    ->label(trans('reverse-proxy::strings.type'))
+                    ->required()
+                    ->selectablePlaceholder(false)
+                    ->options(RouteType::class)
+                    ->default(RouteType::Http->value)
+                    ->helperText(trans('reverse-proxy::strings.type_help'))
+                    ->disabledOn('edit')
+                    ->live()
+                    ->columnSpanFull(),
+
+                // HTTP only
                 Select::make('forward_scheme')
                     ->label(trans('reverse-proxy::strings.forward_scheme'))
                     ->required()
@@ -173,14 +190,54 @@ class ProxyRouteRelationManager extends RelationManager
                         'http' => 'HTTP',
                         'https' => 'HTTPS',
                     ])
-                    ->default('http'),
+                    ->default('http')
+                    ->visible(fn (Get $get) => $get('type') !== RouteType::Stream->value),
                 Toggle::make('websockets')
                     ->label(trans('reverse-proxy::strings.websockets'))
-                    ->default(true),
+                    ->default(true)
+                    ->visible(fn (Get $get) => $get('type') !== RouteType::Stream->value),
                 Toggle::make('block_exploits')
                     ->label(trans('reverse-proxy::strings.block_exploits'))
-                    ->default(true),
+                    ->default(true)
+                    ->visible(fn (Get $get) => $get('type') !== RouteType::Stream->value),
+
+                // Stream only
+                Select::make('stream_port_id')
+                    ->label(trans('reverse-proxy::strings.stream_port'))
+                    ->required(fn (Get $get) => $get('type') === RouteType::Stream->value)
+                    ->visible(fn (Get $get) => $get('type') === RouteType::Stream->value)
+                    ->options(fn (?ProxyRoute $record) => static::availableStreamPorts($record))
+                    ->helperText(trans('reverse-proxy::strings.stream_port_select_help'))
+                    ->live()
+                    ->columnSpanFull(),
+                Toggle::make('stream_tcp')
+                    ->label(trans('reverse-proxy::strings.forward_tcp'))
+                    ->default(true)
+                    ->visible(fn (Get $get) => $get('type') === RouteType::Stream->value),
+                Toggle::make('stream_udp')
+                    ->label(trans('reverse-proxy::strings.forward_udp'))
+                    ->visible(fn (Get $get) => $get('type') === RouteType::Stream->value),
             ]);
+    }
+
+    /**
+     * Unclaimed ports on the domain's proxy manager, plus whichever port this
+     * route already holds. A port carries at most one route, so offering a taken
+     * one would only produce a unique-constraint failure at save time.
+     *
+     * @return array<int, string>
+     */
+    protected static function availableStreamPorts(?ProxyRoute $record): array
+    {
+        return ProxyStreamPort::query()
+            ->where(fn ($query) => $query->doesntHave('route')->when(
+                $record?->stream_port_id,
+                fn ($q, $id) => $q->orWhere('id', $id),
+            ))
+            ->orderBy('port')
+            ->get()
+            ->mapWithKeys(fn (ProxyStreamPort $port) => [$port->id => $port->getLabel()])
+            ->all();
     }
 
     /**

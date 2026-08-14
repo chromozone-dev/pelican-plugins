@@ -6,6 +6,7 @@ use App\Models\Allocation;
 use App\Models\Server;
 use App\Traits\Filament\BlockAccessInConflict;
 use App\Traits\Filament\HasLimitBadge;
+use Chromozone\ReverseProxy\Enums\RouteType;
 use Chromozone\ReverseProxy\Exceptions\ProxyDriverException;
 use Chromozone\ReverseProxy\Filament\Server\Resources\ProxyRoutes\Pages\ListProxyRoutes;
 use Chromozone\ReverseProxy\Models\ProxyDomain;
@@ -103,6 +104,17 @@ class ProxyRouteResource extends Resource
         $server = Filament::getTenant();
 
         return (int) ($server->proxy_route_limit ?? 0);
+    }
+
+    /**
+     * Stream routes are deliberately admin-only: a stream occupies one of a small
+     * set of ports published on the proxy container, so it is a shared resource an
+     * admin allocates - not something to hand out first-come. They are managed on
+     * the server's admin page instead.
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->where('type', RouteType::Http->value);
     }
 
     public static function table(Table $table): Table

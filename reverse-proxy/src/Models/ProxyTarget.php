@@ -100,6 +100,11 @@ class ProxyTarget extends Model implements HasLabel
         return $this->hasMany(ProxyDomain::class, 'target_id');
     }
 
+    public function streamPorts(): HasMany
+    {
+        return $this->hasMany(ProxyStreamPort::class, 'target_id');
+    }
+
     public function getLabel(): string
     {
         return $this->name;

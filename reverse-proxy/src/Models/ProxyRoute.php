@@ -29,6 +29,10 @@ use Illuminate\Support\Str;
  * @property string|null $external_id
  * @property bool $websockets
  * @property bool $block_exploits
+ * @property int|null $stream_port_id
+ * @property bool $stream_tcp
+ * @property bool $stream_udp
+ * @property ProxyStreamPort|null $streamPort
  * @property Carbon|null $last_synced_at
  * @property string|null $last_error
  * @property-read string $hostname
@@ -49,6 +53,9 @@ class ProxyRoute extends Model implements HasLabel
         'external_id',
         'websockets',
         'block_exploits',
+        'stream_port_id',
+        'stream_tcp',
+        'stream_udp',
         // Written via updateQuietly() after a sync attempt, so they must be
         // mass-assignable or the values are silently dropped.
         'last_synced_at',
@@ -64,6 +71,9 @@ class ProxyRoute extends Model implements HasLabel
             'type' => RouteType::class,
             'websockets' => 'bool',
             'block_exploits' => 'bool',
+            'stream_port_id' => 'integer',
+            'stream_tcp' => 'bool',
+            'stream_udp' => 'bool',
             'last_synced_at' => 'datetime',
         ];
     }
@@ -101,6 +111,11 @@ class ProxyRoute extends Model implements HasLabel
     public function server(): BelongsTo
     {
         return $this->belongsTo(Server::class);
+    }
+
+    public function streamPort(): BelongsTo
+    {
+        return $this->belongsTo(ProxyStreamPort::class, 'stream_port_id');
     }
 
     /** @return Attribute<string, string> */
@@ -157,12 +172,32 @@ class ProxyRoute extends Model implements HasLabel
      */
     public function forwardTarget(): string
     {
-        return sprintf(
-            '%s://%s:%d',
-            $this->forward_scheme,
-            app(ForwardHostResolver::class)->resolve($this),
-            $this->allocation->port,
-        );
+        $host = app(ForwardHostResolver::class)->resolve($this);
+
+        if ($this->type->isStream()) {
+            $protocols = implode('/', array_filter([
+                $this->stream_tcp ? 'tcp' : null,
+                $this->stream_udp ? 'udp' : null,
+            ]));
+
+            return sprintf('%s %s:%d', $protocols, $host, $this->allocation->port);
+        }
+
+        return sprintf('%s://%s:%d', $this->forward_scheme, $host, $this->allocation->port);
+    }
+
+    /**
+     * What a player actually connects to. For a stream this is the hostname plus
+     * the proxy's incoming port, which is the whole point: the port shown here is
+     * the game's default even when the server itself runs on another one.
+     */
+    public function publicAddress(): string
+    {
+        if ($this->type->isStream()) {
+            return $this->hostname . ':' . ($this->streamPort->port ?? 0);
+        }
+
+        return $this->url;
     }
 
     /** @throws Exception */

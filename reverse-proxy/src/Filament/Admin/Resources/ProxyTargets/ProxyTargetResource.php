@@ -2,7 +2,9 @@
 
 namespace Chromozone\ReverseProxy\Filament\Admin\Resources\ProxyTargets;
 
+use Chromozone\ReverseProxy\Filament\Admin\Resources\ProxyTargets\Pages\EditProxyTarget;
 use Chromozone\ReverseProxy\Filament\Admin\Resources\ProxyTargets\Pages\ManageProxyTargets;
+use Chromozone\ReverseProxy\Filament\Admin\Resources\ProxyTargets\RelationManagers\StreamPortRelationManager;
 use Chromozone\ReverseProxy\Models\ProxyTarget;
 use Exception;
 use Filament\Actions\Action;
@@ -92,7 +94,9 @@ class ProxyTargetResource extends Resource
                                 ->send();
                         }
                     }),
-                EditAction::make(),
+                // A page rather than a modal, so the stream port pool is reachable.
+                EditAction::make()
+                    ->url(fn (ProxyTarget $target) => EditProxyTarget::getUrl(['record' => $target])),
                 DeleteAction::make()
                     ->modalDescription(trans('reverse-proxy::strings.delete_target_warning')),
             ])
@@ -144,10 +148,18 @@ class ProxyTargetResource extends Resource
             ]);
     }
 
+    public static function getRelations(): array
+    {
+        return [
+            StreamPortRelationManager::class,
+        ];
+    }
+
     public static function getPages(): array
     {
         return [
             'index' => ManageProxyTargets::route('/'),
+            'edit' => EditProxyTarget::route('/{record}/edit'),
         ];
     }
 }

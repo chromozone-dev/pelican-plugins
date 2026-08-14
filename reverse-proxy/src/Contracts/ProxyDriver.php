@@ -2,6 +2,7 @@
 
 namespace Chromozone\ReverseProxy\Contracts;
 
+use Chromozone\ReverseProxy\Enums\RouteType;
 use Chromozone\ReverseProxy\Exceptions\ProxyDriverException;
 use Chromozone\ReverseProxy\Models\ProxyRoute;
 use Chromozone\ReverseProxy\Support\DriverStatus;
@@ -36,10 +37,12 @@ interface ProxyDriver
 
     /**
      * Delete by external id, for pruning entries whose local row is already gone.
+     * The type is required because proxy hosts and streams are separate resources
+     * with separate id spaces.
      *
      * @throws ProxyDriverException
      */
-    public function deleteExternal(string $externalId): void;
+    public function deleteExternal(string $externalId, RouteType $type = RouteType::Http): void;
 
     /**
      * External id of the entry stamped for this route, if one exists. Used to

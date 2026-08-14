@@ -104,7 +104,7 @@ class ReconcileService
                 if ($prune) {
                     foreach ($extras as $extra) {
                         $this->attempt($report, $route->hostname, function () use ($driver, $extra, $route, &$report) {
-                            $driver->deleteExternal((string) $extra['external_id']);
+                            $driver->deleteExternal((string) $extra['external_id'], $extra['type']);
                             $report['pruned'][] = $route->hostname . ' #' . $extra['external_id'];
                         });
                     }
@@ -142,7 +142,7 @@ class ReconcileService
 
             if ($prune) {
                 $this->attempt($report, $label, function () use ($driver, $entry, $label, &$report) {
-                    $driver->deleteExternal((string) $entry['external_id']);
+                    $driver->deleteExternal((string) $entry['external_id'], $entry['type']);
                     $report['pruned'][] = $label;
                 });
             }
@@ -216,7 +216,24 @@ class ReconcileService
             return ['cannot resolve forward host: ' . $exception->getMessage()];
         }
 
+        // Expected state rather than a fixed "should be enabled": a suspended
+        // server's entry is supposed to be off, and repair must not switch it
+        // back on. Applies to both kinds.
+        $expectedEnabled = !$route->server->isSuspended();
         $drift = [];
+
+        if ($entry['enabled'] !== $expectedEnabled) {
+            $drift[] = $expectedEnabled
+                ? 'entry is disabled in the proxy manager'
+                : 'entry is still enabled although the server is suspended';
+        }
+
+        // A stream has no hostname, scheme or certificate to compare - the fields
+        // are entirely different, so comparing HTTP ones would report drift on
+        // every pass and repair would never settle.
+        if ($route->type->isStream()) {
+            return array_merge($drift, $this->streamDrift($route, $entry, $expectedHost));
+        }
 
         if ($entry['forward_host'] !== $expectedHost) {
             $drift[] = sprintf('forward host is %s, expected %s', $entry['forward_host'] ?? 'unset', $expectedHost);
@@ -245,21 +262,49 @@ class ReconcileService
             $drift[] = sprintf('forced SSL is %s, expected %s', var_export($entry['ssl_forced'], true), var_export($expectedSsl, true));
         }
 
-        // Expected state rather than a fixed "should be enabled": a suspended
-        // server's entry is supposed to be off, and repair must not switch it
-        // back on.
-        $expectedEnabled = !$route->server->isSuspended();
-
-        if ($entry['enabled'] !== $expectedEnabled) {
-            $drift[] = $expectedEnabled
-                ? 'entry is disabled in the proxy manager'
-                : 'entry is still enabled although the server is suspended';
-        }
-
         $hostnames = array_map('strtolower', $entry['domain_names'] ?? []);
 
         if (!in_array(strtolower($route->hostname), $hostnames, true)) {
             $drift[] = 'hostname is missing from the proxy entry';
+        }
+
+        return $drift;
+    }
+
+    /**
+     * @param  array<string, mixed>  $entry
+     * @return list<string>
+     */
+    private function streamDrift(ProxyRoute $route, array $entry, string $expectedHost): array
+    {
+        $drift = [];
+
+        // A claimed port that no longer exists is not repairable by syncing - the
+        // route has nothing to listen on.
+        $expectedIncoming = $route->streamPort?->port;
+
+        if (is_null($expectedIncoming)) {
+            return ['no stream port is assigned'];
+        }
+
+        if ($entry['incoming_port'] !== $expectedIncoming) {
+            $drift[] = sprintf('incoming port is %s, expected %d', $entry['incoming_port'] ?? 'unset', $expectedIncoming);
+        }
+
+        if ($entry['forwarding_host'] !== $expectedHost) {
+            $drift[] = sprintf('forwarding host is %s, expected %s', $entry['forwarding_host'] ?? 'unset', $expectedHost);
+        }
+
+        if ($entry['forwarding_port'] !== $route->allocation->port) {
+            $drift[] = sprintf('forwarding port is %s, expected %d', $entry['forwarding_port'] ?? 'unset', $route->allocation->port);
+        }
+
+        if ($entry['tcp_forwarding'] !== (bool) $route->stream_tcp) {
+            $drift[] = 'TCP forwarding does not match';
+        }
+
+        if ($entry['udp_forwarding'] !== (bool) $route->stream_udp) {
+            $drift[] = 'UDP forwarding does not match';
         }
 
         return $drift;

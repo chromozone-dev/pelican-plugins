@@ -6,6 +6,7 @@ use Carbon\CarbonImmutable;
 use Chromozone\ReverseProxy\Contracts\ProxyDriver;
 use Chromozone\ReverseProxy\Enums\AuthMode;
 use Chromozone\ReverseProxy\Enums\ProxyVariant;
+use Chromozone\ReverseProxy\Enums\RouteType;
 use Chromozone\ReverseProxy\Exceptions\ProxyDriverException;
 use Chromozone\ReverseProxy\Models\ProxyRoute;
 use Chromozone\ReverseProxy\Models\ProxyTarget;
@@ -61,7 +62,28 @@ class NpmFamilyDriver implements ProxyDriver
         'enabled',
     ];
 
+    /**
+     * Same idea for streams. NPM additionally accepts domain_names here (for TLS
+     * SNI, which game protocols cannot use) and NPMplus accepts npmplus_*; both
+     * are excluded so one payload works against either.
+     */
+    private const SHARED_STREAM_FIELDS = [
+        'incoming_port',
+        'forwarding_host',
+        'forwarding_port',
+        'tcp_forwarding',
+        'udp_forwarding',
+        'meta',
+        'enabled',
+    ];
+
     public function __construct(private readonly ProxyTarget $target) {}
+
+    /** Endpoint for a route's kind - proxy hosts and streams are separate resources. */
+    private function endpoint(RouteType $type): string
+    {
+        return $type->isStream() ? 'api/nginx/streams' : 'api/nginx/proxy-hosts';
+    }
 
     public function testConnection(): DriverStatus
     {
@@ -114,33 +136,36 @@ class NpmFamilyDriver implements ProxyDriver
 
     public function upsertRoute(ProxyRoute $route): string
     {
-        $payload = $this->buildPayload($route);
+        $endpoint = $this->endpoint($route->type);
+        $payload = $route->type->isStream()
+            ? $this->buildStreamPayload($route)
+            : $this->buildPayload($route);
 
         if (filled($route->external_id)) {
-            $existing = $this->request('get', 'api/nginx/proxy-hosts/' . $route->external_id);
+            $existing = $this->request('get', $endpoint . '/' . $route->external_id);
 
             if ($existing->successful()) {
                 // The proxy manager writes its own keys into meta (nginx_online,
                 // nginx_err), so merge rather than replace.
                 $payload['meta'] = array_merge($existing->json('meta') ?? [], $payload['meta']);
 
-                $response = $this->request('put', 'api/nginx/proxy-hosts/' . $route->external_id, $payload);
+                $response = $this->request('put', $endpoint . '/' . $route->external_id, $payload);
 
                 if (!$response->successful()) {
-                    throw new ProxyDriverException($this->errorMessage($response, 'Could not update the proxy host'));
+                    throw new ProxyDriverException($this->errorMessage($response, 'Could not update the proxy entry'));
                 }
 
                 return (string) ($response->json('id') ?? $route->external_id);
             }
 
             if ($existing->status() !== 404) {
-                throw new ProxyDriverException($this->errorMessage($existing, 'Could not read the existing proxy host'));
+                throw new ProxyDriverException($this->errorMessage($existing, 'Could not read the existing proxy entry'));
             }
 
             // Deleted in the proxy manager behind our back - fall through and recreate.
         }
 
-        $response = $this->request('post', 'api/nginx/proxy-hosts', $payload);
+        $response = $this->request('post', $endpoint, $payload);
 
         if (!$response->successful()) {
             throw new ProxyDriverException($this->errorMessage($response, 'Could not create the proxy host'));
@@ -161,45 +186,69 @@ class NpmFamilyDriver implements ProxyDriver
             return;
         }
 
-        $this->deleteExternal($route->external_id);
+        $this->deleteExternal($route->external_id, $route->type);
     }
 
-    public function deleteExternal(string $externalId): void
+    public function deleteExternal(string $externalId, RouteType $type = RouteType::Http): void
     {
-        $response = $this->request('delete', 'api/nginx/proxy-hosts/' . $externalId);
+        $response = $this->request('delete', $this->endpoint($type) . '/' . $externalId);
 
         // Already gone is the outcome we wanted.
         if ($response->successful() || $response->status() === 404) {
             return;
         }
 
-        throw new ProxyDriverException($this->errorMessage($response, 'Could not delete the proxy host'));
+        throw new ProxyDriverException($this->errorMessage($response, 'Could not delete the proxy entry'));
     }
 
     public function listManagedRoutes(): array
     {
-        $response = $this->request('get', 'api/nginx/proxy-hosts');
+        // Both resources are listed: proxy hosts and streams are separate in the
+        // proxy manager, and reconciliation has to see the whole picture or it
+        // would report every stream as missing and every host as orphaned.
+        return array_merge(
+            $this->listStamped(RouteType::Http),
+            $this->listStamped(RouteType::Stream),
+        );
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     *
+     * @throws ProxyDriverException
+     */
+    private function listStamped(RouteType $type): array
+    {
+        $response = $this->request('get', $this->endpoint($type));
 
         if (!$response->successful()) {
-            throw new ProxyDriverException($this->errorMessage($response, 'Could not list proxy hosts'));
+            throw new ProxyDriverException($this->errorMessage($response, 'Could not list ' . $type->value . ' entries'));
         }
 
-        /** @var array<int, array<string, mixed>> $hosts */
-        $hosts = $response->json() ?? [];
+        /** @var array<int, array<string, mixed>> $entries */
+        $entries = $response->json() ?? [];
 
-        return collect($hosts)
-            ->filter(fn (array $host) => filled(data_get($host, 'meta.pelican.route_id')))
-            ->map(fn (array $host) => [
-                'external_id' => (string) $host['id'],
-                'route_id' => (int) data_get($host, 'meta.pelican.route_id'),
-                'panel' => (string) (data_get($host, 'meta.pelican.panel') ?? ''),
-                'domain_names' => $host['domain_names'] ?? [],
-                'forward_host' => $host['forward_host'] ?? null,
-                'forward_port' => isset($host['forward_port']) ? (int) $host['forward_port'] : null,
-                'forward_scheme' => $host['forward_scheme'] ?? null,
-                'certificate_id' => isset($host['certificate_id']) ? (int) $host['certificate_id'] : 0,
-                'ssl_forced' => (bool) ($host['ssl_forced'] ?? false),
-                'enabled' => (bool) ($host['enabled'] ?? true),
+        return collect($entries)
+            ->filter(fn (array $entry) => filled(data_get($entry, 'meta.pelican.route_id')))
+            ->map(fn (array $entry) => [
+                'external_id' => (string) $entry['id'],
+                'route_id' => (int) data_get($entry, 'meta.pelican.route_id'),
+                'panel' => (string) (data_get($entry, 'meta.pelican.panel') ?? ''),
+                'type' => $type,
+                'enabled' => (bool) ($entry['enabled'] ?? true),
+                // http only
+                'domain_names' => $entry['domain_names'] ?? [],
+                'forward_host' => $entry['forward_host'] ?? null,
+                'forward_port' => isset($entry['forward_port']) ? (int) $entry['forward_port'] : null,
+                'forward_scheme' => $entry['forward_scheme'] ?? null,
+                'certificate_id' => isset($entry['certificate_id']) ? (int) $entry['certificate_id'] : 0,
+                'ssl_forced' => (bool) ($entry['ssl_forced'] ?? false),
+                // stream only
+                'incoming_port' => isset($entry['incoming_port']) ? (int) $entry['incoming_port'] : null,
+                'forwarding_host' => $entry['forwarding_host'] ?? null,
+                'forwarding_port' => isset($entry['forwarding_port']) ? (int) $entry['forwarding_port'] : null,
+                'tcp_forwarding' => (bool) ($entry['tcp_forwarding'] ?? false),
+                'udp_forwarding' => (bool) ($entry['udp_forwarding'] ?? false),
             ])
             ->values()
             ->all();
@@ -260,6 +309,43 @@ class NpmFamilyDriver implements ProxyDriver
         ];
 
         return Arr::only($payload, self::SHARED_FIELDS);
+    }
+
+    /**
+     * Streams carry no hostname - the proxy cannot tell one apart from another on
+     * the same port, which is why a port is claimed exclusively. What makes this
+     * useful is that incoming_port need not equal forwarding_port: a server on a
+     * non-default port becomes reachable by name at the game's default port.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildStreamPayload(ProxyRoute $route): array
+    {
+        $port = $route->streamPort;
+
+        if (is_null($port)) {
+            throw new ProxyDriverException(trans('reverse-proxy::strings.errors.no_stream_port'));
+        }
+
+        $payload = [
+            'incoming_port' => $port->port,
+            'forwarding_host' => app(ForwardHostResolver::class)->resolve($route),
+            'forwarding_port' => $route->allocation->port,
+            'tcp_forwarding' => (bool) $route->stream_tcp,
+            'udp_forwarding' => (bool) $route->stream_udp,
+            'enabled' => !$route->server->isSuspended(),
+            'meta' => [
+                'pelican' => [
+                    'managed_by' => 'pelican-reverse-proxy',
+                    'panel' => (string) config('reverse-proxy.panel_id'),
+                    'route_id' => $route->id,
+                    'server_uuid' => $route->server->uuid,
+                    'allocation_id' => $route->allocation_id,
+                ],
+            ],
+        ];
+
+        return Arr::only($payload, self::SHARED_STREAM_FIELDS);
     }
 
     /**

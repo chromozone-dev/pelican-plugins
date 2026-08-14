@@ -21,9 +21,11 @@ use App\Models\Node;
 use App\Models\Server;
 use App\Tests\TestCase;
 use Chromozone\ReverseProxy\Drivers\NpmFamilyDriver;
+use Chromozone\ReverseProxy\Enums\RouteType;
 use Chromozone\ReverseProxy\Exceptions\ProxyDriverException;
 use Chromozone\ReverseProxy\Models\ProxyDomain;
 use Chromozone\ReverseProxy\Models\ProxyRoute;
+use Chromozone\ReverseProxy\Models\ProxyStreamPort;
 use Chromozone\ReverseProxy\Models\ProxyTarget;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Http\Client\ConnectionException;
@@ -247,7 +249,7 @@ class NpmFamilyDriverTest extends TestCase
         return $enabled;
     }
 
-    private function route(bool $suspended): ProxyRoute
+    private function route(bool $suspended, bool $stream = false): ProxyRoute
     {
         // Built entirely from unsaved models with relations set by hand, so this
         // needs no database. Attributes are assigned directly because Node,
@@ -276,11 +278,77 @@ class NpmFamilyDriverTest extends TestCase
         $route->block_exploits = true;
         $route->server_id = 1;
         $route->allocation_id = 1;
+        $route->type = $stream ? RouteType::Stream : RouteType::Http;
         $route->setRelation('allocation', $allocation);
         $route->setRelation('server', $server);
         $route->setRelation('domain', $domain);
 
+        if ($stream) {
+            // 25565 on the proxy, while the server itself is on 9020 above.
+            $port = new ProxyStreamPort(['port' => 25565, 'tcp' => true, 'udp' => false]);
+            $route->stream_tcp = true;
+            $route->stream_udp = false;
+            $route->setRelation('streamPort', $port);
+        }
+
         return $route;
+    }
+
+    /**
+     * The point of a stream: incoming_port need not equal forwarding_port, so a
+     * server on a non-default port becomes reachable by name at the game's
+     * default port, with no SRV record and no port for the player to type.
+     */
+    public function test_a_stream_listens_on_the_pool_port_and_forwards_to_the_server_port(): void
+    {
+        Http::fake([
+            '*/api/tokens' => $this->tokenResponse([
+                'expires' => now()->addDay()->toIso8601String(),
+                'token' => 'jwt-abc123',
+            ]),
+            '*/api/nginx/streams' => Http::response(['id' => 5]),
+        ]);
+
+        $route = $this->route(suspended: false, stream: true);
+
+        $id = (new NpmFamilyDriver($this->target()))->upsertRoute($route);
+
+        $this->assertSame('5', $id);
+
+        Http::assertSent(function (Request $request) {
+            if (!str_ends_with($request->url(), '/api/nginx/streams')) {
+                return false;
+            }
+
+            $data = $request->data();
+
+            return $data['incoming_port'] === 25565      // the game's default, on the proxy
+                && $data['forwarding_port'] === 9020     // where the server actually listens
+                && $data['forwarding_host'] === '10.0.0.5'
+                && $data['tcp_forwarding'] === true
+                && $data['udp_forwarding'] === false
+                // Fields the proxy-host endpoint takes must not leak in: both
+                // forks declare additionalProperties:false on streams too.
+                && !array_key_exists('domain_names', $data)
+                && !array_key_exists('forward_scheme', $data)
+                && !array_key_exists('certificate_id', $data);
+        });
+    }
+
+    /** A stream must go to the streams endpoint, never the proxy-host one. */
+    public function test_a_stream_does_not_touch_the_proxy_host_endpoint(): void
+    {
+        Http::fake([
+            '*/api/tokens' => $this->tokenResponse([
+                'expires' => now()->addDay()->toIso8601String(),
+                'token' => 'jwt-abc123',
+            ]),
+            '*/api/nginx/streams' => Http::response(['id' => 5]),
+        ]);
+
+        (new NpmFamilyDriver($this->target()))->upsertRoute($this->route(suspended: false, stream: true));
+
+        Http::assertNotSent(fn (Request $request) => str_contains($request->url(), 'proxy-hosts'));
     }
 
     /**

@@ -25,7 +25,17 @@ Build the archive from the workspace root with `composer build`, then either upl
 php artisan p:plugin:install reverse-proxy
 ```
 
-Installing runs the plugin's migrations, which add three tables plus `servers.proxy_route_limit` and `nodes.proxy_forward_host`. `php artisan p:plugin:uninstall reverse-proxy` rolls all of that back.
+Installing runs the plugin's migrations, which add four tables plus `servers.proxy_route_limit` and `nodes.proxy_forward_host`. `php artisan p:plugin:uninstall reverse-proxy` rolls all of that back.
+
+### Upgrading to a version that adds migrations
+
+**Import replaces files but does not run migrations** — only the panel's *Update* action does, and that needs `update_url` in the installed copy. If you import a version whose schema changed, apply it yourself:
+
+```bash
+php artisan migrate --path=plugins/reverse-proxy/database/migrations --force
+```
+
+Do not uninstall and reinstall to get there: uninstalling rolls the migrations back, which drops the plugin's tables and everything configured in them.
 
 ## Setup
 
@@ -42,6 +52,29 @@ Installing runs the plugin's migrations, which add three tables plus `servers.pr
 Admin permissions are registered for *Proxy Manager*, *Domain* and *Reverse Proxy*, so you can grant proxy management to a role without giving it the rest of the panel. The per-server section on a server's admin page requires the *Reverse Proxy* permission.
 
 Users then get a **Reverse Proxies** page on their server, and a **Create proxy** button next to each port on the Network page.
+
+## Game servers (TCP/UDP streams)
+
+HTTP routes share ports 80/443 because the client sends a `Host` header. Game protocols mostly don't, so they get a **stream**: the proxy listens on one port and forwards it.
+
+What makes that useful is that **the incoming port need not match the server's port**. A Minecraft server on 25570 can be reached at `mc.example.com` with no port, because the proxy listens on 25565 and forwards to 25570. No SRV record required, which matters since almost no game supports SRV — Minecraft and SCP: SL are the exceptions, not the rule.
+
+**Setup.** Publish the ports on the proxy manager's container first, since Docker cannot add ports to a running one:
+
+```yaml
+ports:
+  - "25565:25565"        # Minecraft
+  - "7777:7777/udp"      # SCP: SL
+  - "27015:27015/udp"    # Source (Garry's Mod)
+```
+
+Then list them under *Reverse Proxy → Proxy Managers → edit → Stream ports*, and create a stream route on the server's admin page. Streams are **admin-only**: a port is a scarce shared resource, so it is allocated rather than claimed first-come.
+
+**Three things to know before relying on this:**
+
+- **One server per port.** A stream cannot tell hostnames apart, so a second Minecraft server needs another port, a Minecraft-aware proxy (Velocity, BungeeCord, Infrared), or SRV records.
+- **Every player appears to come from the proxy's IP.** nginx rewrites the source address and there is no `X-Forwarded-For` for raw UDP, so IP bans, per-IP limits and geo logic all break. This hits Source games hardest, since their admin tooling leans on IP bans. NPMplus can send PROXY protocol, but neither Source nor SCP: SL parses it.
+- **Server-browser listings still advertise the real address.** Source and SCP: SL announce themselves to master lists using their own IP and port, so browser entries bypass the proxy. The hostname fixes direct connects, which is what people share.
 
 ## Where the proxy forwards to
 
@@ -112,6 +145,6 @@ This plugin lives in the [pelican-plugins workspace](../README.md) - see that RE
 
 ## Notes and limits
 
-- **HTTP(S) only.** Raw game ports need TCP/UDP stream forwarding, which is a different feature with a real constraint: each stream's incoming port must already be published on the proxy container, and Docker cannot add ports to a running container. Deliberately left out. For Minecraft hostnames, SRV records via the subdomains plugin are the right tool.
+- **One stream per port.** nginx `stream` has no hostname to route on, so two servers cannot share a port. Multiple Minecraft servers on one port need a Minecraft-aware proxy (Velocity, BungeeCord, Infrared); multiple Source servers are not possible by name at all.
 - **Caddy is not supported yet.** The driver interface (`Contracts/ProxyDriver`) exists so it can be added without touching models or UI. Caddy's admin API binds localhost with no authentication, so it needs a tunnel or mTLS to be usable from the panel.
 - **Deleting a route when the proxy manager is down** removes the local record and leaves the remote entry behind; server deletion is deliberately never blocked on a third-party service. `--prune` cleans up afterwards.

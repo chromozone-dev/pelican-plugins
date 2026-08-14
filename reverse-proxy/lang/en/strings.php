@@ -45,6 +45,20 @@ return [
     'last_synced' => 'Last synced',
     'never_synced' => 'Never',
 
+    'type' => 'Type',
+    'type_help' => 'HTTP(S) routes share ports 80/443 and are told apart by hostname, so you can have as many as you like. A TCP/UDP stream claims one port on the proxy for one server - use it for game protocols, which carry no hostname.',
+
+    'stream_ports' => 'Stream ports',
+    'stream_ports_help' => 'Ports published on this proxy manager that streams may listen on. Docker cannot add ports to a running container, so these must already be exposed on it - listing a port here that is not published produces a stream that never accepts a connection.',
+    'stream_port' => 'Proxy port',
+    'stream_port_help' => 'Use the game\'s default port so players do not have to type one: the proxy can listen on 25565 and forward to a server running on any port.',
+    'stream_port_select_help' => 'Only unclaimed ports are listed. One port serves one server, because a stream cannot tell hostnames apart.',
+    'no_stream_ports' => 'No stream ports',
+    'unclaimed' => 'Unclaimed',
+    'delete_stream_port_warning' => 'Any stream using this port will lose it and stop working until another is assigned.',
+    'forward_tcp' => 'Forward TCP',
+    'forward_udp' => 'Forward UDP',
+
     'destination' => 'Destination',
     'destination_help' => 'Where the proxy connects to reach this port. If this is not an address your proxy can reach, set a proxy forward host on the node.',
     'destination_unavailable' => 'Cannot be determined',
@@ -125,6 +139,7 @@ return [
     'errors' => [
         'allocation_mismatch' => 'That port does not belong to this server.',
         'domain_not_available' => 'That domain is not available for this server.',
+        'no_stream_port' => 'This stream has no proxy port assigned, so there is nothing for it to listen on.',
         'sync_failed' => 'The reverse proxy could not be saved. Please try again, or ask an administrator to check the proxy manager.',
         'tls_trust' => 'This looks like a self-signed certificate, which is how NPMplus serves its admin interface by default - and reaching it on a LAN address means no certificate could validate anyway. Edit this proxy manager and turn off "Verify TLS certificate".',
         'allocation_detached' => 'The port behind :hostname no longer belongs to this server, so it was not published. Delete this proxy or point it at a current port.',
