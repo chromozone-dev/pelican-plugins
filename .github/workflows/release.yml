@@ -89,7 +89,11 @@ jobs:
           ID: ${{ steps.tag.outputs.id }}
           VERSION: ${{ steps.tag.outputs.version }}
         run: |
-          git checkout main
+          # A tag push checks out a detached HEAD, so main has to be established
+          # explicitly rather than relying on checkout's DWIM.
+          git fetch origin main
+          git checkout -B main origin/main
+
           php scripts/update-manifest.php "$ID" "$VERSION" "${{ github.repository }}"
 
           if git diff --quiet update.json; then
