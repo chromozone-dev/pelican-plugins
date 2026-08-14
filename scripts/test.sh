@@ -11,7 +11,8 @@
 
 set -euo pipefail
 
-"$(dirname "$0")/panel-setup.sh"
+# See analyse.sh: invoked through bash so this does not depend on the execute bit.
+bash "$(dirname "$0")/panel-setup.sh"
 
 PANEL="${PANEL:-/panel}"
 cd "$PANEL"

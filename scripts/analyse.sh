@@ -5,7 +5,9 @@
 
 set -euo pipefail
 
-"$(dirname "$0")/panel-setup.sh"
+# Invoked through bash rather than directly: the execute bit cannot be set on a
+# Windows checkout, so relying on it makes this fail with exit 126 in CI.
+bash "$(dirname "$0")/panel-setup.sh"
 
 cd "${PANEL:-/panel}"
 
