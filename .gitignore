@@ -1,0 +1,13 @@
+/vendor/
+/dist/
+
+# Scratch panel checkout used for static analysis (see README.md)
+/.panel/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+.phpunit.result.cache
+.php-cs-fixer.cache

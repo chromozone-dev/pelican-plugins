@@ -1,0 +1,49 @@
+{
+    "name": "chromozone/pelican-plugins",
+    "description": "Plugins for Pelican Panel",
+    "type": "project",
+    "license": "MIT",
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "https://github.com/pelican-dev/panel",
+            "no-api": true
+        }
+    ],
+    "require": {
+        "php": "^8.3 || ^8.4 || ^8.5"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.29",
+        "pelican-dev/panel": "dev-main"
+    },
+    "autoload": {
+        "psr-4": {
+            "Chromozone\\ReverseProxy\\": "reverse-proxy/src/"
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "filament/filament": true,
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        }
+    },
+    "scripts": {
+        "pint": "pint",
+        "pint:test": "pint --test",
+        "analyse": "bash scripts/analyse.sh",
+        "test": "bash scripts/test.sh",
+        "build": "php scripts/build-plugin.php"
+    },
+    "scripts-descriptions": {
+        "pint": "Fix code style across every plugin",
+        "pint:test": "Check code style without changing anything",
+        "analyse": "Run PHPStan (requires the compose environment - see README.md)",
+        "test": "Run the plugins' tests (requires the compose environment - see README.md)",
+        "build": "Package each plugin into an installable zip under dist/"
+    }
+}

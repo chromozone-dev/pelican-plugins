@@ -1,0 +1,18 @@
+# Matches pelican-dev/plugins exactly, and is meant to run from inside a panel
+# checkout with the plugins copied to its plugins/ directory - larastan has to
+# boot a real Laravel application, which it can only do from the panel's own
+# root. See README.md for the two ways to run it.
+
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+
+    paths:
+        - plugins
+
+    level: 6
+
+    ignoreErrors:
+        - identifier: missingType.generics
+        - identifier: larastan.noEnvCallsOutsideOfConfig

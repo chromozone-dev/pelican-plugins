@@ -1,0 +1,89 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+# PHPStan and PHPUnit both need a real panel checkout: larastan boots a Laravel
+# application, and the panel owns the PHPUnit harness. scripts/panel-setup.sh
+# builds that checkout, and the jobs below call the same scripts used locally so
+# the two cannot drift.
+
+jobs:
+  pint:
+    name: Pint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          tools: composer:v2
+          coverage: none
+
+      # Installed in a scratch directory so this job doesn't pay for the panel,
+      # which the workspace's own require-dev would pull in.
+      - name: Install Pint
+        run: |
+          mkdir -p /tmp/pint
+          cd /tmp/pint
+          composer init --no-interaction --name=ci/pint
+          composer require "laravel/pint:^1.29" --no-interaction --no-progress
+
+      - name: Run Pint
+        run: /tmp/pint/vendor/bin/pint --test --config pint.json
+
+  phpstan:
+    name: PHPStan
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php: [ 8.3, 8.4, 8.5 ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: bcmath, intl, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Run PHPStan
+        env:
+          WORKSPACE: ${{ github.workspace }}
+          PANEL: ${{ runner.temp }}/panel
+        run: bash scripts/analyse.sh --error-format=github
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.4
+          extensions: bcmath, intl, zip
+          tools: composer:v2
+          coverage: none
+
+      - name: Run tests
+        env:
+          WORKSPACE: ${{ github.workspace }}
+          PANEL: ${{ runner.temp }}/panel
+        run: bash scripts/test.sh

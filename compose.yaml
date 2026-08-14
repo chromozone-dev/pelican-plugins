@@ -1,0 +1,39 @@
+# Development environment for these plugins.
+#
+# PHPStorm can use this directly as its interpreter:
+#   Settings > PHP > CLI Interpreter > ... > Add > From Docker, Vagrant, VM, WSL,
+#   Remote... > Docker Compose > Service: php
+#
+# See README.md for the rest of the setup.
+
+services:
+  php:
+    build: ./docker
+    working_dir: /workspace
+    volumes:
+      # The workspace itself. vendor/ deliberately lands on the host so the IDE
+      # can index it - that is what provides completion for App\*, Filament\*
+      # and Illuminate\*.
+      - .:/workspace
+
+      # Throwaway panel checkout that PHPStan and PHPUnit run against. A named
+      # volume rather than a bind mount on purpose: keeping it off the host stops
+      # the IDE indexing a second copy of Laravel and Filament, which would make
+      # it report every framework class as multiply defined.
+      - panel:/panel
+
+      # Persists Composer's download cache across runs, so re-installing the
+      # panel's ~170 packages doesn't re-download them every time.
+      - composer-cache:/tmp/composer-cache
+
+    environment:
+      COMPOSER_CACHE_DIR: /tmp/composer-cache
+
+    # Keeps the service up for `docker compose exec`. PHPStorm uses
+    # `docker compose run`, which overrides this anyway.
+    command: sleep infinity
+    tty: true
+
+volumes:
+  panel:
+  composer-cache:

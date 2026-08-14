@@ -1,0 +1,7 @@
+* text=auto eol=lf
+
+# These run inside Linux containers - CRLF makes bash fail with
+# "$'\r': command not found", so pin them regardless of core.autocrlf.
+*.sh text eol=lf
+Dockerfile text eol=lf
+compose.yaml text eol=lf
