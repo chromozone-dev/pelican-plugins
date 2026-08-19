@@ -16,3 +16,11 @@ parameters:
     ignoreErrors:
         - identifier: missingType.generics
         - identifier: larastan.noEnvCallsOutsideOfConfig
+        # A plugin's own Blade views live under a view namespace that PluginService
+        # only registers at runtime (loadPlugins(), via addNamespace()), which never
+        # boots during static analysis. Larastan's view-string check can't resolve
+        # such a view and misreports the property as a plain `string`, for every
+        # Filament\Widgets\Widget::$view (or Page::$view) a plugin declares pointing
+        # at its own resources/views. Not a real error.
+        - identifier: property.defaultValue
+          message: '#\$view \(view-string\) does not accept default value of type string\.#'

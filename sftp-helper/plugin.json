@@ -1,0 +1,15 @@
+{
+    "id": "sftp-helper",
+    "name": "SFTP Helper",
+    "author": "dkatz",
+    "version": "1.0.0",
+    "description": "Shows a server's SFTP connection details at the top of the Files page, where users actually want them.",
+    "category": "plugin",
+    "namespace": "Chromozone\\SftpHelper",
+    "class": "SftpHelperPlugin",
+    "panels": [
+        "server"
+    ],
+    "panel_version": "^1.0.0-beta36",
+    "composer_packages": null
+}

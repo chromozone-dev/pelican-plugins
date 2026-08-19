@@ -5,6 +5,7 @@ A workspace holding one folder per [Pelican Panel](https://pelican.dev) plugin. 
 | Plugin | What it does |
 |---|---|
 | [`reverse-proxy/`](reverse-proxy/) | Gives server ports real hostnames via Nginx Proxy Manager or NPMplus |
+| [`sftp-helper/`](sftp-helper/) | Shows SFTP connection details at the top of the Files page |
 
 ## Setup
 

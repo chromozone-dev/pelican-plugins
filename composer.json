@@ -19,7 +19,8 @@
     },
     "autoload": {
         "psr-4": {
-            "Chromozone\\ReverseProxy\\": "reverse-proxy/src/"
+            "Chromozone\\ReverseProxy\\": "reverse-proxy/src/",
+            "Chromozone\\SftpHelper\\": "sftp-helper/src/"
         }
     },
     "minimum-stability": "stable",
