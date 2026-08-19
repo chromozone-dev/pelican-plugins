@@ -33,6 +33,18 @@ fi
 
 echo "==> syncing plugins from $WORKSPACE"
 mkdir -p plugins
+
+# Mirror, not overlay: /panel is a persistent volume, so a plugin renamed or
+# removed on the host would otherwise leave its old copy here forever -
+# registered, analysed and tested alongside its replacement.
+for dir in plugins/*/; do
+    [ -d "$dir" ] || continue
+    name="$(basename "$dir")"
+    [ -f "$WORKSPACE/$name/plugin.json" ] && continue
+    echo "    removing stale plugins/$name"
+    rm -rf "plugins/$name"
+done
+
 for dir in "$WORKSPACE"/*/; do
     [ -f "$dir/plugin.json" ] || continue
     name="$(basename "$dir")"
